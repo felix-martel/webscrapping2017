@@ -1,0 +1,149 @@
+---
+title: "LeMondeScrapper"
+author: "Felix Martel"
+date: "21 novembre 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Build HTTP request
+
+```{r}
+library(lubridate)
+library(httr)
+library(rvest)
+
+# 'http://abonnes.lemonde.fr/recherche/?keywords=internet&page_num=1&operator=and&exclude_keywords=&qt=recherche_texte_titre&author=&period=custom_date&start_day=01&start_month=01&start_year=1944&end_day=22&end_month=11&end_year=2017&sort=asc'
+
+# Init parameters
+base_url <- 'http://abonnes.lemonde.fr/recherche/?'
+keys <- c('keywords', 'page_num', 'operator', 'exclude_keywords', 'qt', 'author', 'period', 'start_day', 'start_month', 'start_year', 'end_day', 'end_month', 'end_year', 'sort')
+params <- rep('', length(keys))
+names(params) <- keys
+
+# Base values
+params['page_num'] = 1
+params['operator'] = 'and'
+params['qt'] = 'recherche_titre' # 'recherche_texte_titre'
+params['period'] = 'custom_date'
+params['sort'] = 'asc'
+
+# Set values
+## Dates
+start_date <- ymd('2016-12-01')
+end_date <- ymd('2016-12-31')
+params['start_day'] <- day(start_date)
+params['start_month'] <- month(start_date)
+params['start_year'] <- year(start_date)
+
+params['end_day'] <- day(end_date)
+params['end_month'] <- month(end_date)
+params['end_year'] <- year(end_date)
+
+## Keywords
+keyword <- 'macron'
+params['keywords'] <- keyword
+
+build_request <- function(url, keys, values){
+  parameters = paste0(keys, rep('=', length(keys)), values)
+  parameters_string <- paste(parameters, sep='', collapse='&')
+  return(paste(url, parameters_string, sep=''))
+}
+
+create_date <- function(params, type="start"){
+  return(paste(params[paste(type, "_day", sep="")], params[paste(type, "_month", sep="")], params[paste(type, "_year", sep="")], sep="/"))
+}
+
+url <- build_request(base_url, keys, params)
+```
+
+```{r}
+# Utils
+get_nodes <- function(s, node) {
+  return(read_html(s) %>% html_nodes(node) %>% html_text())
+}
+```
+
+# Crawler
+
+```{r}
+login <- function(){
+  # Params
+  user <- 'felix.martel@gmx.com'
+  pwd <- 'lettre'
+  
+  # Create session
+  s <- html_session('https://secure.lemonde.fr/sfuser/connexion')
+  
+  # Sign in
+  signin_form <- html_form(s)[[3]]
+  signin_form <- set_values(signin_form, 'connection[mail]' = user)
+  signin_form <- set_values(signin_form, 'connection[password]' = pwd)
+  res <- submit_form(s, signin_form)
+  return(res)
+}
+```
+
+```{r}
+get_titles <- function(s) {
+  read_tags <- function(sel){
+    return(read_html(s) %>% html_nodes(sel) %>% html_text())
+  }
+  read_href <- function(sel){
+    return(read_html(s) %>% html_nodes(sel) %>% html_attr(name="href"))
+  }
+  
+  titles <- read_tags("article h3 > a")
+  dates <- read_tags("article .resultat span.signature")
+  hrefs <- read_href("article h3 > a")
+  
+  df <- data.frame(
+    title=titles, 
+    date=dates, 
+    href=hrefs
+  )
+  return(df)
+}
+
+tag_exists <- function(s, tag) {
+  tag_list <- html_nodes(s, css=tag)
+  return(length(tag_list[1]) > 0)
+}
+
+
+getAll <- function(params){
+  s <- login()
+  url <- build_request(base_url, keys, params)
+  print(paste("Going to '", url, "'...", sep=""))
+  s <- jump_to(s, url)
+  titles <- data.frame(title=character(), date=character(), href=character())
+  
+  # Pages
+  page <- 1
+  nb_results <- as.integer(html_nodes(s, css="section.resultats_recherche > p:first-of-type strong:first-of-type") %>% html_text())
+  max_page <- as.integer(nb_results / 10) + 1
+  
+  # Print parameters and number of results
+  print(paste(nb_results, " results for query '", params["keywords"], "' between ", create_date(params, "start"), " and ", create_date(params, "end"), sep=""))
+  
+  for (i in 1:max_page){
+    params['page_num'] = i
+    url <- build_request(base_url, keys, params)
+    s <- jump_to(s, url)
+    titles <- rbind(titles, get_titles(s))
+  }
+  
+  titles$href <- paste("http://abonnes.lemonde.fr", titles$href, sep="")
+  titles$date <- sapply(strsplit(as.character(titles$date), "| ", fixed=T), '[', 2)
+  titles$date <- as.Date(titles$date, format="%d %B %Y")
+  return(titles)
+}
+
+df <- getAll(params)
+
+
+```
+
