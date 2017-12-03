@@ -114,7 +114,7 @@ tag_exists <- function(s, tag) {
 }
 
 
-getAll <- function(params){
+getData <- function(params){
   s <- login()
   url <- build_request(base_url, keys, params)
   print(paste("Going to '", url, "'...", sep=""))
@@ -142,8 +142,20 @@ getAll <- function(params){
   return(titles)
 }
 
-df <- getAll(params)
+df <- getData(params)
 
+words <- c('présidentielle', 'macron')
+
+getAll <- function(words){
+  words <- gsub(" ", "+", words)
+  df <-  data.frame(title=character(), date=character(), href=character())
+  for (w in words){
+    params['keywords'] <- w
+    res <- getAll(params)
+    df <- rbind(df, res)
+  }
+  return(df)
+}
 
 ```
 
