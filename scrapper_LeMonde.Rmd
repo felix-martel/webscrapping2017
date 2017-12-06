@@ -14,6 +14,13 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(lubridate)
 library(httr)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(ggplot2)
+library(readr)
+library(tidyverse)
 library(rvest)
 
 # 'http://abonnes.lemonde.fr/recherche/?keywords=internet&page_num=1&operator=and&exclude_keywords=&qt=recherche_texte_titre&author=&period=custom_date&start_day=01&start_month=01&start_year=1944&end_day=22&end_month=11&end_year=2017&sort=asc'
@@ -34,7 +41,7 @@ params['sort'] = 'asc'
 # Set values
 ## Dates
 start_date <- ymd('2016-12-01')
-end_date <- ymd('2016-12-31')
+end_date <- ymd('2017-07-31')
 params['start_day'] <- day(start_date)
 params['start_month'] <- month(start_date)
 params['start_year'] <- year(start_date)
@@ -61,10 +68,7 @@ url <- build_request(base_url, keys, params)
 ```
 
 ```{r}
-# Utils
-get_nodes <- function(s, node) {
-  return(read_html(s) %>% html_nodes(node) %>% html_text())
-}
+
 ```
 
 # Crawler
@@ -85,9 +89,11 @@ login <- function(){
   res <- submit_form(s, signin_form)
   return(res)
 }
-```
 
-```{r}
+get_nodes <- function(s, node) {
+  return(read_html(s) %>% html_nodes(node) %>% html_text())
+}
+
 get_titles <- function(s) {
   read_tags <- function(sel){
     return(read_html(s) %>% html_nodes(sel) %>% html_text())
@@ -114,14 +120,14 @@ tag_exists <- function(s, tag) {
 }
 
 
-getData <- function(params){
-  s <- login()
+getData <- function(session, params){
   url <- build_request(base_url, keys, params)
-  print(paste("Going to '", url, "'...", sep=""))
-  s <- jump_to(s, url)
+  #print(paste("Going to '", url, "'...", sep=""))
+  s <- jump_to(session, url)
   titles <- data.frame(title=character(), date=character(), href=character())
   
   # Pages
+  start_page <- params['page_num']
   page <- 1
   nb_results <- as.integer(html_nodes(s, css="section.resultats_recherche > p:first-of-type strong:first-of-type") %>% html_text())
   max_page <- as.integer(nb_results / 10) + 1
@@ -131,9 +137,16 @@ getData <- function(params){
   
   for (i in 1:max_page){
     params['page_num'] = i
+    print(paste(params["keywords"], i))
     url <- build_request(base_url, keys, params)
     s <- jump_to(s, url)
-    titles <- rbind(titles, get_titles(s))
+    chunk <- tryCatch({
+      get_titles(s)
+    }, error = function(e){
+      print(paste('ERROR ON LINE', i))
+      data.frame(title=character(), date=character(), href=character())
+    })
+    titles <- rbind(titles, chunk)
   }
   
   titles$href <- paste("http://abonnes.lemonde.fr", titles$href, sep="")
@@ -142,20 +155,119 @@ getData <- function(params){
   return(titles)
 }
 
-df <- getData(params)
+#s <- login()
+#df <- getData(s, params)
 
-words <- c('présidentielle', 'macron')
+words <- c('presidentielle', 'macron')
 
-getAll <- function(words){
-  words <- gsub(" ", "+", words)
-  df <-  data.frame(title=character(), date=character(), href=character())
+
+getAll <- function(words, params){
+  #words <- gsub(" ", "+", words)
+  s <- login()
+  df <-  data.frame(
+    title=character(), 
+    date=character(), 
+    href=character()
+  )
   for (w in words){
+    print(paste('Retrieving', w))
     params['keywords'] <- w
-    res <- getAll(params)
+    res <- tryCatch({
+      getData(s, params)
+    }, error = function(e){
+      print(paste('ERROR ON WORD', w))
+      data.frame(
+        title=character(), 
+        date=character(), 
+        href=character()
+      )
+    })
     df <- rbind(df, res)
   }
   return(df)
 }
 
+#titles <- getAll(words, params)
+#write.table(titles, file="./data/lemonde.csv", sep=";")
 ```
+
+## Récupérer l'URL des articles
+
+```{r}
+# Get titles
+tfilters <- read.csv('./data/titles_filter.csv', encoding="UTF-8")
+tfilters <- as.character(unlist(tfilters, use.names = F))
+nw <- length(tfilters)
+tfilters <- tfilters[2:nw]
+
+df <- getAll(tfilters, params)
+write.table(titles, file="./data/lemonde_all.csv", sep=";")
+```
+
+
+# Récuper le texte des articles
+
+# Utils functions
+
+```{r}
+filter_corpus <- function(h){
+  # Convertir le texte en minuscule
+  x <- tm_map(h, content_transformer(tolower))
+  # Supprimer les mots vides
+  x <- tm_map(x, removeWords, stopwords("french"))
+  # Supprimer votre propre liste de mots non désirés
+  #x <- tm_map(x, removeWords, c("bla"))
+  # Supprimer les ponctuations
+  x <- tm_map(x, removePunctuation, ucp=T)
+  # Supprimer les espaces vides supplémentaires
+  x <- tm_map(x, stripWhitespace)
+  return(x)
+}
+
+getArticle <-function(session, href, words){
+  res <- tryCatch({
+    s <- jump_to(session, href)
+    node <- s %>% read_html() %>%  html_node("article")
+    text <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse="\n")
+    text <- filter_corpus(Corpus(VectorSource(text)))
+    dtm <- TermDocumentMatrix(text)
+    m <- as.matrix(dtm)
+    v <- sort(rowSums(m),decreasing=TRUE)
+    print(url)
+    my_d <- data.frame(word = names(v),freq=v)
+    return(my_d[words,"freq"])
+  }, error = function(e){return(rep(NA, length(words)))})
+}
+
+relevant_words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
+
+
+# words_table <- data.frame(do.call(rbind,lapply(res$link[relevant_articles], FUN = function(url) scrap_lexpress_text(url,relevant_words))))
+# words_table[is.na(words_table)] <- 0
+# colnames(words_table) <- relevant_words
+# rownames(words_table) <- res$title[relevant_articles]
+# 
+# save(words_table,file="lexpress_table.Rda")
+```
+
+
+
+```{r}
+relevant_words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
+session <- login()
+href <- "http://abonnes.lemonde.fr/campus/article/2016/12/01/presidentielle-2017-les-propositions-des-grandes-ecoles-pour-faire-reussir-la-jeunesse_5041290_4401467.html?xtmc=presidentielle&xtcr=1"
+s <- jump_to(session, href)
+node <- s %>% read_html() %>%  html_node("article")
+rawtext <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse=" ")
+Encoding(rawtext) <- "UTF-8"
+text <- filter_corpus(Corpus(DataframeSource(data.frame(doc_id=c(1), text=c(rawtext)))))
+dtm <- TermDocumentMatrix(text)
+inspect(dtm)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+print(href)
+my_d <- data.frame(word = names(v),freq=v)
+my_d
+```
+
 
