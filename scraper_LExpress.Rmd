@@ -1,0 +1,182 @@
+---
+title: "L'Express scraper"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r imports}
+library(rvest)
+library(lubridate)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+```
+
+
+# Récupération des titres de l'Express sur la période 01/12/2016 - 31/07/2017
+
+```{r}
+
+# Fonction qui récupère la liste des articles de L'Express publiés un jour donné
+lexpress_scrap <- function(m,d,y){
+  
+  day = ymd(paste(y,m,d,sep="/"))
+  url = paste("https://www.lexpress.fr/archives/",
+              gsub("-","/",day),
+              "/",
+              sep="")
+  
+  aux <- function(p){
+      result <- tryCatch({
+        page <- read_html(paste(url,"?p=",p,sep=""))
+        nodes <- page %>%  html_nodes(".group")
+        topic <- nodes %>% sapply( . %>% html_nodes(".info .topic") %>% html_text )
+        title <- nodes %>% sapply( . %>% html_nodes(".title_mu") %>% html_text )
+        description <- nodes %>% sapply( . %>% html_nodes(".txt") %>% html_text )
+        link <- nodes %>% sapply( . %>% html_nodes("a") %>% html_attr("href") %>% (function(x) paste("http:",x[1],sep="")))
+        date <- rep(paste(d,m,y,sep="/"),length(title))
+        rbind(cbind(date,topic,title,description,link),aux(p+1))
+      }, error = function(e) {data.frame()})
+    return(result)
+  }
+  result <- aux(1)
+  print(paste(day,nrow(result)))
+  return(result)
+}
+
+
+# Accumulation dans le data.frame des informations sur les articles de l'Express sur la période 01/12/2016-31/07/2017
+lexpress = data.frame(date=character(),
+                 topic= character(),
+                 title = character(),
+                 description = character(),
+                 link = character())
+
+
+
+for(d in 1:31){
+  lexpress = rbind(lexpress,lexpress_scrap(12,d,2016))
+}
+for(m in 1:7){
+  for(d in 1:31){
+    lexpress = rbind(lexpress,lexpress_scrap(m,d,2017))
+  }
+}
+
+# Tri par date de publication des articles
+lexpress$date <- as.Date(lexpress$date,format="%d/%m/%Y")
+lexpress <- lexpress %>% arrange(date)
+
+# Création d'une clé et suppression des doublons
+id <- paste("LExpress",lexpress$title,lexpress$date,sep="_")
+without_duplicates <- which(!duplicated(id))
+id <- id[without_duplicates]
+lexpress <- lexpress[without_duplicates,]
+rownames(lexpress) <- id
+save(lexpress,file="data/lexpress.Rda")
+```
+
+# Création des tables de contingence pour les articles pertinents
+
+```{r}
+# Fonction de transformation des mots du corpus
+
+filter_corpus <- function(.){
+  # Convertir le texte en minuscule
+  tm_map(., content_transformer(tolower)) %>% 
+  # Supprimer les mots vides
+  tm_map(., removeWords, stopwords("french")) %>% 
+  # Supprimer votre propre liste de mots non désirés
+  # tm_map(., removeWords, c("bla")) %>% 
+  # Supprimer les ponctuations
+  tm_map(., removePunctuation) %>% 
+  # Supprimer les espaces vides supplémentaires
+  tm_map(., stripWhitespace)
+}
+
+words_matrix <- function(h){
+  dtm <- TermDocumentMatrix(h)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  res <- data.frame(word = names(v),freq=v)
+  res <- res[order(-res$freq),]
+  res$word <- factor(res$word,levels=res$word[order(-res$freq)])
+  return(res)
+}
+
+# Détermine si le titre est pertinent en regardant si au moins un mot d'intérêt apparaît dans le titre
+is_relevant <- function(t,words_filter){
+  title_corpus <- Corpus(VectorSource(t))
+  title_corpus <- filter_corpus(title_corpus)
+  title <- title_corpus$content
+  title <- strsplit(title,split=" ",fixed=TRUE)[[1]]
+  return(any(words_filter %in% title))
+}
+
+# Charge les titres de L'Express
+load("data/lexpress.Rda")
+
+# Charge les mots d'intérêt pour la pertinence et le suivi dans le corps des articles
+titles_filter <- read_csv("data/titles_filter.csv",col_names = FALSE)$X1
+relevant_words <- read_csv("data/relevant_words.csv",col_names = FALSE)$X1
+
+# Détermine les articles pertinents
+relevant_articles <- which(sapply(lexpress$title, function(t) is_relevant(t,titles_filter)))
+
+# Fonction qui crée la table de contingence des mots de words à partir de l'article d'adress url
+scrap_lexpress_text <- function(url,words){
+  result <-tryCatch(
+    {page <- read_html(url)
+    node <- page %>%  html_node("div.article_container")
+    text <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse="\n")
+    text <- filter_corpus(Corpus(VectorSource(text)))
+    dtm <- TermDocumentMatrix(text)
+    m <- as.matrix(dtm)
+    v <- sort(rowSums(m),decreasing=TRUE)
+    print(url)
+    my_d <- data.frame(word = names(v),freq=v)
+    return(my_d[words,"freq"])
+    },error = function(e) return(rep(NA,length(words))))
+  return(result)
+}
+
+# Création de la table de contingence
+lexpress_words_table <- data.frame(do.call(rbind,lapply(lexpress$link[relevant_articles], FUN = function(url) scrap_lexpress_text(url,relevant_words))))
+lexpress_words_table[is.na(lexpress_words_table)] <- 0
+colnames(lexpress_words_table) <- relevant_words
+lexpress_words_table <- cbind(lexpress[relevant_articles,c(date,title)],lexpress_words_table)
+save(lexpress_words_table,file="data/lexpress_words_table.Rda")
+```
+
+# Analyse des tendances des mots en fonction du temps
+
+```{r}
+lexpress_words_hotness <- lexpress_words_table %>% 
+  group_by(date) %>% 
+  summarise_at(relevant_words,sum)
+
+ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=macron,color="macron"),se=F)+
+  geom_smooth(aes(y=fillon,color="fillon"),se=F)+
+  geom_smooth(aes(y=pen,color="pen"),se=F)+
+  geom_smooth(aes(y=hamon,color="hamon"),se=F)+
+  geom_smooth(aes(y=mélenchon,color="mélenchon"),se=F)
+
+ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=penelope,color="penelope"),se=F)+
+  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)+
+  geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
+```
+
+
+
+
+
