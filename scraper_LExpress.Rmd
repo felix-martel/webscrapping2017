@@ -16,6 +16,8 @@ library(lubridate)
 library(ggplot2)
 library(readr)
 library(tidyverse)
+library(FactoMineR)
+library(explor)
 ```
 
 
@@ -100,15 +102,15 @@ filter_corpus <- function(.){
   tm_map(., stripWhitespace)
 }
 
-words_matrix <- function(h){
-  dtm <- TermDocumentMatrix(h)
-  m <- as.matrix(dtm)
-  v <- sort(rowSums(m),decreasing=TRUE)
-  res <- data.frame(word = names(v),freq=v)
-  res <- res[order(-res$freq),]
-  res$word <- factor(res$word,levels=res$word[order(-res$freq)])
-  return(res)
-}
+# words_matrix <- function(h){
+#   dtm <- TermDocumentMatrix(h)
+#   m <- as.matrix(dtm)
+#   v <- sort(rowSums(m),decreasing=TRUE)
+#   res <- data.frame(word = names(v),freq=v)
+#   res <- res[order(-res$freq),]
+#   res$word <- factor(res$word,levels=res$word[order(-res$freq)])
+#   return(res)
+# }
 
 # Détermine si le titre est pertinent en regardant si au moins un mot d'intérêt apparaît dans le titre
 is_relevant <- function(t,words_filter){
@@ -153,30 +155,6 @@ colnames(lexpress_words_table) <- relevant_words
 lexpress_words_table <- cbind(lexpress[relevant_articles,c(date,title)],lexpress_words_table)
 save(lexpress_words_table,file="data/lexpress_words_table.Rda")
 ```
-
-# Analyse des tendances des mots en fonction du temps
-
-```{r}
-lexpress_words_hotness <- lexpress_words_table %>% 
-  group_by(date) %>% 
-  summarise_at(relevant_words,sum)
-
-ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
-  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
-  geom_smooth(aes(y=macron,color="macron"),se=F)+
-  geom_smooth(aes(y=fillon,color="fillon"),se=F)+
-  geom_smooth(aes(y=pen,color="pen"),se=F)+
-  geom_smooth(aes(y=hamon,color="hamon"),se=F)+
-  geom_smooth(aes(y=mélenchon,color="mélenchon"),se=F)
-
-ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
-  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
-  geom_smooth(aes(y=penelope,color="penelope"),se=F)+
-  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)+
-  geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
-```
-
-
 
 
 

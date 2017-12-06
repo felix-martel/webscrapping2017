@@ -1,0 +1,83 @@
+---
+title: "Analyse des données"
+output: html_notebook
+---
+
+```{r imports}
+library(rvest)
+library(lubridate)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(FactoMineR)
+library(explor)
+```
+
+```{r}
+load("data/lexpress_words_table.Rda")
+load("data/lefigaro_words_table.Rda")
+
+#relevant_words <- read_csv("data/relevant_words.csv",col_names = FALSE)$X1
+
+#lexpress_words_table <- lexpress_words_table %>% select(date,title,relevant_words)
+#lefigaro_words_table <- lefigaro_words_table %>% select(date,title,relevant_words)
+
+#save(lefigaro_words_table,file="data/lefigaro_words_table.Rda")
+#save(lexpress_words_table,file="data/lexpress_words_table.Rda")
+
+
+words_table <- rbind(data.frame(journal = rep("Le Figaro",nrow(lefigaro_words_table)),lefigaro_words_table),
+                     data.frame(journal = rep("L'Express",nrow(lexpress_words_table)),lexpress_words_table))
+
+relevant_words = colnames(words_table)[4:ncol(words_table)]
+
+words_hotness_global <- words_table %>%
+  group_by(date) %>%
+  summarise_at(relevant_words,mean)
+
+ggplot(words_hotness_global)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=macron,color="macron"),se=F)+
+  geom_smooth(aes(y=fillon,color="fillon"),se=F)+
+  geom_smooth(aes(y=pen,color="pen"),se=F)+
+  geom_smooth(aes(y=hamon,color="hamon"),se=F)+
+  geom_smooth(aes(y=mélenchon,color="mélenchon"),se=F)
+
+ggplot(words_hotness_global)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=penelope,color="penelope"),se=F)+
+  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)+
+  geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
+
+words_hotness_journal <- words_table %>%
+  group_by(journal,date) %>%
+  summarise_at(relevant_words,mean)
+
+ggplot(words_hotness_journal)+aes(x=date,group=journal,linetype=journal)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=macron,color="macron"),se=F)+
+  geom_smooth(aes(y=fillon,color="fillon"),se=F)
+
+ggplot(words_hotness_journal)+aes(x=date,group=journal,linetype=journal)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=soupçons,color="soupçons"),se=F)+
+  geom_smooth(aes(y=assistants,color="assistants"),se=F)+
+  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)
+
+# words_table_CA <- words_table #%>% sample_n(1000)
+# non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
+# words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
+# non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
+# words_table_CA <- words_table_CA[non_zero_rows,]
+# words_table_CA <- words_table_CA %>% select(-date,-title)
+# res.CA <- CA(words_table_CA,graph=F,quali.sup = 1,ncp=20)
+
+
+
+```
+

@@ -1,0 +1,205 @@
+---
+title: "Le figaro scraper"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r imports}
+library(rvest)
+library(lubridate)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+```
+
+
+# Récupération des titres de l'Express sur la période 01/12/2016 - 31/07/2017
+
+```{r}
+
+# Fonction qui récupère la liste des articles de L'Express publiés un jour donné
+figaro_scrap <- function(x){
+  
+  number = paste(x)
+  url = paste("http://recherche.lefigaro.fr/recherche/pr%C3%A9sidentielles/?page=",
+              x,
+              sep="")
+  
+  aux <- function(p){
+    print (p)
+  result <- tryCatch({
+      page <-   read_html(paste(url,p,sep=""))
+      #page <- read_html(url)
+      print (url)
+      nodes <- page %>%  html_nodes(".fig-profil")
+      #topic <- nodes %>% sapply( . %>% html_nodes(".fig-tools-rubrique") %>% html_text )
+      title <- nodes %>% sapply( . %>% html_nodes(".fig-profil-headline") %>% html_text )
+      #title <- nodes %>% sapply( . %>% html_nodes(".href") %>% html_text )
+      description <- nodes %>% sapply( . %>% html_nodes(".fig-profil-chapo") %>% html_text )
+      link <- nodes %>% sapply( . %>% html_nodes("a") %>% html_attr("href") %>% (function(x) paste("",x[1],sep="")))
+      date <- nodes %>% sapply( . %>% html_nodes(".fig-date-pub") %>% html_text )
+      rbind(cbind(date,title,description,link),aux(p+1))
+    }, error = function(e) {data.frame()})
+    return(result)
+  }
+  result <- aux(1)
+  #print(paste(day,nrow(result)))
+  return(result)
+  }
+
+  #print(paste(day,nrow(result)))
+
+res_figaro = data.frame(date= character(),
+                 title = character(),
+                 description = character(),
+                 link=character()
+                 )
+
+
+res_figaro = data.frame(figaro_scrap(1))
+save(res_figaro,file="lefigaro.Rda")
+#change name
+lefigaro<- res_figaro
+save(lefigaro,file="data/lefigaro.Rda")
+
+# Change date
+df<-as.character(lefigaro$date)
+df2 <-sapply(strsplit(df, "le ", fixed=T), '[', 2)
+lefigaro$date<-as.Date(sapply(strsplit(df2, " ", fixed=T), '[', 1), format="%d/%m/%Y")
+
+save(lefigaro,file="data/lefigaro.Rda")
+
+# Write CSV in R
+write.csv(lefigaro, file = "data/lefigaro.csv")
+
+
+# Tri par date de publication des articles
+
+load("data/lefigaro.Rda")
+
+
+# select period of time
+begin<-"2016-12-01"
+end<-"2017-07-31"
+res <- subset(lefigaro, lefigaro$date>begin & lefigaro$date < end)
+res <- res %>% arrange(date)
+
+# Création d'une clé et suppression des doublons
+id <- paste("Lefigaro",res$title,res$date,sep="_")
+without_duplicates<- which(!duplicated(id))
+id <- id[without_duplicates]
+res <- res[without_duplicates,]
+rownames(res) <- id
+lefigaro<-res
+save(lefigaro,file="data/lefigaro.Rda")
+```
+
+# Création des tables de contingence pour les articles pertinents
+
+```{r}
+
+load("lefigaro.Rda")
+
+filter_corpus <- function(h){
+  # Convertir le texte en minuscule
+  x <- tm_map(h, content_transformer(tolower))
+  # Supprimer les mots vides
+  x <- tm_map(x, removeWords, stopwords("french"))
+  # Supprimer votre propre liste de mots non désirés
+  #x <- tm_map(x, removeWords, x <- tm_map(x, removeWords, c("après","aujourd'hui","depuis","scan","selon","vidéo","soir","deux","fait","ans","lors","être","plus","dimanche","comme","alors","jeudi","entre","faire","politique")))
+  # Supprimer les ponctuations
+  x <- tm_map(x, removePunctuation)
+  # Supprimer les espaces vides supplémentaires
+  x <- tm_map(x, stripWhitespace)
+  return(x)
+}
+
+words_matrix <- function(h){
+  dtm <- TermDocumentMatrix(h)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  res <- data.frame(word = names(v),freq=v)
+  res <- res[order(-res$freq),]
+  res$word <- factor(res$word,levels=res$word[order(-res$freq)])
+  return(res)
+}
+
+#load relevant words to study
+relevant_words <- read_csv("data/relevant_words.csv",col_names = FALSE)
+relevant_words <-relevant_words$X1
+
+scrap_lefigaro_text <- function(url,words){
+  result <-tryCatch(
+    {page <- read_html(url)
+    node <- page %>%  html_node(".fig-content__body")
+    chapo <- page %>%  html_node(".fig-content__chapo") %>% html_text
+    text <- node %>% html_nodes("p, h2") %>% html_text %>% stringr::str_c(sep="",collapse="\n")
+    text <- stringr::str_c(chapo,text,sep="",collapse="\n")
+    text <- filter_corpus(Corpus(VectorSource(text)))
+    dtm <- TermDocumentMatrix(text)
+    m <- as.matrix(dtm)
+    v <- sort(rowSums(m),decreasing=TRUE)
+    print(url)
+    my_d <- data.frame(word = names(v),freq=v)
+    return(my_d[words,"freq"])
+    },error = function(e) {print("error")
+    return(rep(NA,length(words)))}
+    )
+  return(result)
+}
+
+#scap articles
+lefigaro_words_table <- data.frame(do.call(rbind,lapply(lefigaro$link, FUN = function(url) scrap_lefigaro_text(paste(url),relevant_words))))
+
+#NA<-0
+lefigaro_words_table[is.na(lefigaro_words_table)] <- 0
+
+#colnames & rownames
+colnames(lefigaro_words_table) <- relevant_words
+rownames(lefigaro_words_table) <- lefigaro$title 
+
+#save result
+save(lefigaro_words_table,file=("data/lefigaro_table_long.Rda"))
+lefigaro_words_table<-lefigaro_words_table[relevant_words]
+
+lefigaro_words_table <- cbind(lefigaro[c('date','title')],lefigaro_words_table)
+save(lefigaro_words_table,file="data/lefigaro_words_table.Rda")
+save(lefigaro_words_table,file="data/lefigaro_words_table.Rda")
+
+```
+
+# Analyse des tendances des mots en fonction du temps
+
+```{r}
+load("lefigaro_words_table.Rda")
+
+lefigaro_words_hotness <- lefigaro_words_table %>% 
+  group_by(date) %>% 
+  summarise_at(relevant_words,sum)
+
+ggplot(lefigaro_words_hotness)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=macron,color="macron"),se=F)+
+  geom_smooth(aes(y=fillon,color="fillon"),se=F)+
+  geom_smooth(aes(y=pen,color="pen"),se=F)+
+  geom_smooth(aes(y=hamon,color="hamon"),se=F)+
+  geom_smooth(aes(y=mélenchon,color="mélenchon"),se=F)
+
+ggplot(lefigaro_words_hotness)+aes(x=date)+ylab("hotness")+
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  geom_smooth(aes(y=penelope,color="penelope"),se=F)+
+  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)+
+  geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
+
+```
+
+
+
+
+
