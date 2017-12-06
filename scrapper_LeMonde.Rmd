@@ -67,9 +67,6 @@ create_date <- function(params, type="start"){
 url <- build_request(base_url, keys, params)
 ```
 
-```{r}
-
-```
 
 # Crawler
 
@@ -194,80 +191,79 @@ getAll <- function(words, params){
 ## Récupérer l'URL des articles
 
 ```{r}
-# Get titles
-tfilters <- read.csv('./data/titles_filter.csv', encoding="UTF-8")
-tfilters <- as.character(unlist(tfilters, use.names = F))
-nw <- length(tfilters)
-tfilters <- tfilters[2:nw]
-
-df <- getAll(tfilters, params)
-write.table(titles, file="./data/lemonde_all.csv", sep=";")
+# Get the list of words we're interested in
+# df <- read.csv('./data/titles_filter.csv', encoding='UTF-8') %>% 
+#   unlist(use.names = F) %>% 
+#   as.character() %>%
+#   # Retrieve all titles containing one of those words
+#   getAll(params) %>%
+#   # Remove duplicates
+#   distinct(titles, .keep_all=T)
+# 
+# # Store result
+# write.table(df, file="./data/lemonde_all_data.csv", sep=";")
 ```
 
 
 # Récuper le texte des articles
 
-# Utils functions
-
 ```{r}
-filter_corpus <- function(h){
-  # Convertir le texte en minuscule
-  x <- tm_map(h, content_transformer(tolower))
-  # Supprimer les mots vides
-  x <- tm_map(x, removeWords, stopwords("french"))
-  # Supprimer votre propre liste de mots non désirés
-  #x <- tm_map(x, removeWords, c("bla"))
-  # Supprimer les ponctuations
-  x <- tm_map(x, removePunctuation, ucp=T)
-  # Supprimer les espaces vides supplémentaires
-  x <- tm_map(x, stripWhitespace)
+
+filter_corpus <- function(h) {
+  x <- h %>%
+    tm_map(content_transformer(tolower)) %>%
+    tm_map(removeWords, stopwords("french")) %>%
+    tm_map(removePunctuation, ucp=T) %>%
+    tm_map(stripWhitespace)
   return(x)
 }
 
 getArticle <-function(session, href, words){
   res <- tryCatch({
+    print(paste("GOING TO", href))
+    # Go to page
     s <- jump_to(session, href)
     node <- s %>% read_html() %>%  html_node("article")
-    text <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse="\n")
-    text <- filter_corpus(Corpus(VectorSource(text)))
+    
+    # Get raw text
+    rawtext <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse=" ")
+    Encoding(rawtext) <- "UTF-8"
+    df.text <- data.frame(doc_id=c(1), text=c(rawtext))
+    
+    # Clean and filter it
+    text <- df.text %>%
+      DataframeSource() %>% 
+      Corpus() %>% 
+      filter_corpus()
+    
+    # Compute term-document matrix
     dtm <- TermDocumentMatrix(text)
     m <- as.matrix(dtm)
     v <- sort(rowSums(m),decreasing=TRUE)
-    print(url)
+    
+    # Keep only relevant words
     my_d <- data.frame(word = names(v),freq=v)
     return(my_d[words,"freq"])
-  }, error = function(e){return(rep(NA, length(words)))})
+  }, error = function(e){
+    print(paste('Error with', href))
+    return(rep(NA, length(words)))
+    })
 }
 
-relevant_words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
-
-
-# words_table <- data.frame(do.call(rbind,lapply(res$link[relevant_articles], FUN = function(url) scrap_lexpress_text(url,relevant_words))))
-# words_table[is.na(words_table)] <- 0
-# colnames(words_table) <- relevant_words
-# rownames(words_table) <- res$title[relevant_articles]
-# 
-# save(words_table,file="lexpress_table.Rda")
-```
-
-
-
-```{r}
-relevant_words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
+words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
+articles <- read.csv("./data/lemonde_unique_titles.csv", sep=";")
+articles_test <- articles[1:10,]
 session <- login()
-href <- "http://abonnes.lemonde.fr/campus/article/2016/12/01/presidentielle-2017-les-propositions-des-grandes-ecoles-pour-faire-reussir-la-jeunesse_5041290_4401467.html?xtmc=presidentielle&xtcr=1"
-s <- jump_to(session, href)
-node <- s %>% read_html() %>%  html_node("article")
-rawtext <- node %>% html_nodes("p, h1, h2, h3, h4, h5, h6") %>% html_text %>% stringr::str_c(sep="",collapse=" ")
-Encoding(rawtext) <- "UTF-8"
-text <- filter_corpus(Corpus(DataframeSource(data.frame(doc_id=c(1), text=c(rawtext)))))
-dtm <- TermDocumentMatrix(text)
-inspect(dtm)
-m <- as.matrix(dtm)
-v <- sort(rowSums(m),decreasing=TRUE)
-print(href)
-my_d <- data.frame(word = names(v),freq=v)
-my_d
+
+words_table <- data.frame(do.call(rbind, lapply(articles$href, FUN = function(href){
+  getArticle(session, href, words)
+})))
+
+words_table[is.na(words_table)] <- 0
+colnames(words_table) <- words
+
+save(words_table,file="./data/lemonde_articles.Rda")
 ```
+
 
 
