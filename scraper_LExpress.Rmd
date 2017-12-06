@@ -16,6 +16,8 @@ library(lubridate)
 library(ggplot2)
 library(readr)
 library(tidyverse)
+library(FactoMineR)
+library(explor)
 ```
 
 
@@ -100,15 +102,15 @@ filter_corpus <- function(.){
   tm_map(., stripWhitespace)
 }
 
-words_matrix <- function(h){
-  dtm <- TermDocumentMatrix(h)
-  m <- as.matrix(dtm)
-  v <- sort(rowSums(m),decreasing=TRUE)
-  res <- data.frame(word = names(v),freq=v)
-  res <- res[order(-res$freq),]
-  res$word <- factor(res$word,levels=res$word[order(-res$freq)])
-  return(res)
-}
+# words_matrix <- function(h){
+#   dtm <- TermDocumentMatrix(h)
+#   m <- as.matrix(dtm)
+#   v <- sort(rowSums(m),decreasing=TRUE)
+#   res <- data.frame(word = names(v),freq=v)
+#   res <- res[order(-res$freq),]
+#   res$word <- factor(res$word,levels=res$word[order(-res$freq)])
+#   return(res)
+# }
 
 # Détermine si le titre est pertinent en regardant si au moins un mot d'intérêt apparaît dans le titre
 is_relevant <- function(t,words_filter){
@@ -157,6 +159,10 @@ save(lexpress_words_table,file="data/lexpress_words_table.Rda")
 # Analyse des tendances des mots en fonction du temps
 
 ```{r}
+load("data/lexpress_words_table.Rda")
+
+relevant_words = colnames(lexpress_words_table)[3:ncol(lexpress_words_table)]
+
 lexpress_words_hotness <- lexpress_words_table %>% 
   group_by(date) %>% 
   summarise_at(relevant_words,sum)
@@ -176,7 +182,17 @@ ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
   geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
 ```
 
+# Analyse factorielle des correspondances
 
+```{r}
+load("data/lexpress_words_table.Rda")
+
+non_zero_rows <- which(lexpress_words_table %>% select(-title,-date) %>% rowSums() >0)
+lexpress_words_table_no_zero_rows <- lexpress_words_table[non_zero_lines,]
+
+lexpress.CA <- CA(lexpress_words_table_no_zero_lines,quali.sup=c(1,2),graph=F)
+
+```
 
 
 
