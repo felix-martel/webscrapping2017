@@ -1,5 +1,5 @@
 library(explor)
-load("lexpress_table.Rda")
+load("data/lexpress_table.Rda")
 
 words_hotness <- sapply(words_table,sum)
 
