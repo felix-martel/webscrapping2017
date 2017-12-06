@@ -156,43 +156,5 @@ lexpress_words_table <- cbind(lexpress[relevant_articles,c(date,title)],lexpress
 save(lexpress_words_table,file="data/lexpress_words_table.Rda")
 ```
 
-# Analyse des tendances des mots en fonction du temps
-
-```{r}
-load("data/lexpress_words_table.Rda")
-
-relevant_words = colnames(lexpress_words_table)[3:ncol(lexpress_words_table)]
-
-lexpress_words_hotness <- lexpress_words_table %>% 
-  group_by(date) %>% 
-  summarise_at(relevant_words,sum)
-
-ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
-  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
-  geom_smooth(aes(y=macron,color="macron"),se=F)+
-  geom_smooth(aes(y=fillon,color="fillon"),se=F)+
-  geom_smooth(aes(y=pen,color="pen"),se=F)+
-  geom_smooth(aes(y=hamon,color="hamon"),se=F)+
-  geom_smooth(aes(y=mélenchon,color="mélenchon"),se=F)
-
-ggplot(lexpress_words_hotness)+aes(x=date)+ylab("hotness")+
-  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
-  geom_smooth(aes(y=penelope,color="penelope"),se=F)+
-  geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)+
-  geom_smooth(aes(y=affaire+affaires,color="affaires"),se=F)
-```
-
-# Analyse factorielle des correspondances
-
-```{r}
-load("data/lexpress_words_table.Rda")
-
-non_zero_rows <- which(lexpress_words_table %>% select(-title,-date) %>% rowSums() >0)
-lexpress_words_table_no_zero_rows <- lexpress_words_table[non_zero_lines,]
-
-lexpress.CA <- CA(lexpress_words_table_no_zero_lines,quali.sup=c(1,2),graph=F)
-
-```
-
 
 
