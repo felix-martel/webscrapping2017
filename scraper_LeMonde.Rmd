@@ -250,8 +250,8 @@ getArticle <-function(session, href, words){
     })
 }
 
-words <- as.vector(read.csv("./data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
-articles <- read.csv("./data/lemonde_unique_titles.csv", sep=";")
+words <- as.vector(read.csv("data/relevant_words.csv", encoding = 'UTF-8', header=F)$V1)
+articles <- read.csv("data/lemonde_unique_titles.csv", sep=";")
 articles_test <- articles[1:10,]
 session <- login()
 
@@ -262,7 +262,12 @@ words_table <- data.frame(do.call(rbind, lapply(articles$href, FUN = function(hr
 words_table[is.na(words_table)] <- 0
 colnames(words_table) <- words
 
-save(words_table,file="./data/lemonde_articles.Rda")
+id = paste("LeMonde",articles$title,articles$date,sep="_")
+
+lemonde_words_table <- cbind(articles[,c("date","title")],words_table)
+rownames(lemonde_words_table) <- id
+
+save(lemonde_words_table,file="data/lemonde_words_table.Rda")
 ```
 
 
