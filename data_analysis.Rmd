@@ -15,12 +15,14 @@ library(ggplot2)
 library(readr)
 library(tidyverse)
 library(FactoMineR)
+librar(ade4)
 library(explor)
 ```
 
 ```{r}
 load("data/lexpress_words_table.Rda")
 load("data/lefigaro_words_table.Rda")
+load("data/lemonde_words_table.Rda")
 
 #relevant_words <- read_csv("data/relevant_words.csv",col_names = FALSE)$X1
 
@@ -32,7 +34,8 @@ load("data/lefigaro_words_table.Rda")
 
 
 words_table <- rbind(data.frame(journal = rep("Le Figaro",nrow(lefigaro_words_table)),lefigaro_words_table),
-                     data.frame(journal = rep("L'Express",nrow(lexpress_words_table)),lexpress_words_table))
+                     data.frame(journal = rep("L'Express",nrow(lexpress_words_table)),lexpress_words_table),
+                     data.frame(journal = rep("Le Monde",nrow(lemonde_words_table)),lemonde_words_table))
 
 relevant_words = colnames(words_table)[4:ncol(words_table)]
 
@@ -60,8 +63,7 @@ words_hotness_journal <- words_table %>%
 
 ggplot(words_hotness_journal)+aes(x=date,group=journal,linetype=journal)+ylab("hotness")+
   scale_x_date(date_breaks = "1 month",date_labels = "%b")+
-  geom_smooth(aes(y=macron,color="macron"),se=F)+
-  geom_smooth(aes(y=fillon,color="fillon"),se=F)
+  geom_smooth(aes(y=macron,color="macron"),se=F)
 
 ggplot(words_hotness_journal)+aes(x=date,group=journal,linetype=journal)+ylab("hotness")+
   scale_x_date(date_breaks = "1 month",date_labels = "%b")+
@@ -69,14 +71,15 @@ ggplot(words_hotness_journal)+aes(x=date,group=journal,linetype=journal)+ylab("h
   geom_smooth(aes(y=assistants,color="assistants"),se=F)+
   geom_smooth(aes(y=penelopegate,color="penelopegate"),se=F)
 
-# words_table_CA <- words_table #%>% sample_n(1000)
-# non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
-# words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
-# non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
-# words_table_CA <- words_table_CA[non_zero_rows,]
-# words_table_CA <- words_table_CA %>% select(-date,-title)
-# res.CA <- CA(words_table_CA,graph=F,quali.sup = 1,ncp=20)
-
+words_table_CA <- words_table #%>% sample_n(1000)
+non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
+words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
+non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
+words_table_CA <- words_table_CA[non_zero_rows,]
+words_table_CA <- words_table_CA %>% select(-date,-title)
+res.CA <- CA(words_table_CA,graph=F,quali.sup = 1,ncp=20)
+plot.CA(res.CA,label="quali.sup",invisible=c("row"),habillage=1)
+explor(res.CA)
 
 
 ```
