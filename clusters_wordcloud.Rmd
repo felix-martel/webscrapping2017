@@ -1,0 +1,134 @@
+---
+title: "Clusterisation"
+output: html_notebook
+---
+
+```{r imports}
+library(rvest)
+library(lubridate)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(FactoMineR)
+library(ade4)
+library(explor)
+```
+
+
+```{r,eval=F,include=F}
+load("data/lexpress_words_table.Rda")
+load("data/lefigaro_words_table.Rda")
+load("data/lemonde_words_table.Rda")
+
+words_table <- rbind(data.frame(journal = rep("Le Figaro",nrow(lefigaro_words_table)),lefigaro_words_table),
+                     data.frame(journal = rep("L'Express",nrow(lexpress_words_table)),lexpress_words_table),
+                     data.frame(journal = rep("Le Monde",nrow(lemonde_words_table)),lemonde_words_table))
+
+words_table_CA <- words_table 
+non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
+words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
+non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
+words_table_CA <- words_table_CA[non_zero_rows,]
+#selection des dates avant elections
+w<-words_table_CA[which(words_table_CA$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
+journaux<-words_table_CA[,'journal']
+words_table_CA <- words_table_CA %>% select(-journal,-date,-title)
+res.CA <- CA(words_table_CA,graph=F,ncp=20)
+res.HCPC <- HCPC (res.CA,graph=F,nb.clust=6)
+res.HCPC$data.clust[,'journal']<-journaux
+#plot.HCPC(res.HCPC,invisible=c("row"))
+save(res.HCPC,file="data/HCPC.Rda")
+
+#fonction qui donne les images des clusters en png
+Cluster<-function(words.hcpc,nb_clusters,name){
+  for (j in 1:nb_clusters){
+        png(paste(paste(paste("clusters/",name,sep=""),j,sep="_"),".png",sep=""),    width=6, height=6, units="in", res=150)
+        frq<-words.hcpc$desc.var[[j]][,"Intern freq"]
+        names<-names(words.hcpc$desc.var[[j]][,"Intern freq"])
+      wordcloud(words = names, freq = frq , min.freq = 1,
+            max.words=150, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+        dev.off()
+  }
+  graphics.off()
+}
+
+```
+
+
+```{r,eval=F,include=F}
+#clusters des trois journaux ensemble
+load("data/HCPC.Rda")
+global<-res.HCPC
+nb_clusters<-6
+Cluster(global,nb_clusters = 6,"global_clusters")
+
+```
+
+
+```{r,eval=F,include=F}
+load("data/HCPC.Rda")
+#traitement du cluster 2 car poids maximal
+c2<-res.HCPC$data.clust %>% filter(clust==2)  %>% select(-clust)
+c2_CA <- c2
+journaux_c2<-c2_CA[,'journal']
+c2_CA<- c2_CA %>% select(-journal) 
+non_zero_c2 <- which(c2_CA  %>% rowSums() >0)
+non_zero_rows_c2 <- which(c2_CA  %>% colSums() >0)
+words_table_c2 <- c2_CA[non_zero_c2,]
+words_table_c2 <- c2_CA[,non_zero_rows_c2]
+c2.CA<-CA(c2_CA,graph=F,ncp=20)
+c2.HCPC<-HCPC(c2.CA,nb.clust = 5,graph=T)
+save(c2.HCPC,file="data/c2_HCPC.Rda")
+```
+
+
+```{r,eval=F,include=F}
+load("c2_HCPC.Rda")
+h2<-c2.HCPC
+nb_clusters<-5
+Cluster(c2.HCPC,nb_clusters=5,name="c2_wordcloud")
+
+```
+
+```{r,eval=F,include=F}
+#clusterisation par journal
+load("data/lexpress_words_table.Rda")
+load("data/lefigaro_words_table.Rda")
+load("data/lemonde_words_table.Rda")
+lemonde_words_table$date<-as.Date(lemonde_words_table$date)
+save(lemonde_words_table,file="data/lemonde_words_table.Rda")
+
+
+#traitement pour HCPC
+traitement_CA<-function(words_tmp){
+  words_res<-words_tmp
+  words_res<-words_res[which(words_res$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
+  words_res <- words_res %>% select(-date,-title)
+  non_zero_rows <- which(words_res %>% rowSums() >0)
+  words_res<-words_res[non_zero_rows,]
+  non_zero_cols <- which(words_res %>% colSums() >0)
+  words_res<-words_res[,non_zero_cols]
+  words_res<-CA(words_res,ncp=20,graph=F)
+  return (words_res)
+}
+
+
+lexpress_CA<-traitement_CA(lexpress_words_table)
+lefigaro_CA<-traitement_CA(lefigaro_words_table)
+lemonde_CA<-traitement_CA(lemonde_words_table)
+
+lexpress_HCPC<-HCPC(lexpress_CA,nb.clust=6,graph=F)
+lefigaro_HCPC<-HCPC(lefigaro_CA,nb.clust=4,graph=F)
+lemonde_HCPC<-HCPC(lemonde_CA,nb.clust=6,graph=F)
+
+Cluster(lexpress_HCPC,6,name="lexpress_cluster")
+Cluster(lefigaro_HCPC,4,"lefigaro_cluster")
+Cluster(lemonde_HCPC,6,"lemonde_cluster")
+
+```

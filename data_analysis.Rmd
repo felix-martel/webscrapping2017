@@ -81,6 +81,5 @@ res.CA <- CA(words_table_CA,graph=F,quali.sup = 1,ncp=20)
 plot.CA(res.CA,label="quali.sup",invisible=c("row"),habillage=1)
 explor(res.CA)
 
-
 ```
 

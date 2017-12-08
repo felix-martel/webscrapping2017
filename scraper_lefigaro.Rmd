@@ -16,6 +16,9 @@ library(lubridate)
 library(ggplot2)
 library(readr)
 library(tidyverse)
+library(explor)
+library(FactoMineR)
+library(wordcloud)
 ```
 
 
@@ -202,4 +205,33 @@ ggplot(lefigaro_words_hotness)+aes(x=date)+ylab("hotness")+
 
 
 
+# CA
 
+```{r}
+load("lefigaro_words_table.Rda")
+
+#words_hotness <- sapply(words_table,sum)
+
+#words_table <- words_table[,order(words_hotness,decreasing = TRUE)[1:100]]
+
+lefigaro_words_table_CA <- lefigaro_words_table
+#get rid of 0
+non_zero_words <- names(which(lefigaro_words_table_CA %>% select(-title,-date) %>% colSums() >0))
+lefigaro_words_table_CA <- cbind(lefigaro_words_table_CA[,c(1,2)],lefigaro_words_table_CA[,non_zero_words])
+non_zero_rows <- which(lefigaro_words_table_CA %>% select(-title,-date) %>% rowSums() >0)
+lefigaro_words_table_CA <- lefigaro_words_table_CA[non_zero_rows,]
+
+#CA
+lefigaro.CA <- CA(lefigaro_words_table_CA %>% select(-date,-title),graph=F)
+explor(lefigaro.CA)
+
+
+
+#wordcloud des cluster
+figaro.hcpc <- HCPC(lefigaro.CA, nb.clust=6)
+
+names(figaro.hcpc)
+figaro.hcpc$desc.var[[3]][1:9,]
+h$data.clust
+h$data.clust[,ncol(h$data.clust)]
+```
