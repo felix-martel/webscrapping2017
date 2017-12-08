@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readr)
 library(dplyr)
 library(lubridate)
+library(ggplot2)
 
 # Wordcloud
 library(wordcloud)
@@ -20,6 +21,9 @@ library(RColorBrewer)
 
 # Text mining
 library(tm)
+
+# Correspondence analysis
+library(FactoMineR)
 ```
 
 
@@ -163,21 +167,135 @@ juillet |![](images/wordcloud_LeMonde_7.png){width=6cm} | ![](images/wordcloud_L
 
 Le package factomineR contient une fonction permettant de réaliser une classification hiérarchique sur composantes principales à partir d'une analyse factorielle des correspondances.
 
-#### Nuages de mots des clusters sur tout le corpus
+#### Nuages de mots des clusters
 
-<center>          
------- ------ ------ 
-![](images/wordcloud_LeMonde_7.png){width=6cm} ![](images/wordcloud_LeMonde_7.png){width=6cm} ![](images/wordcloud_LeMonde_7.png){width=6cm}
-![](images/wordcloud_LeMonde_7.png){width=6cm} ![](images/wordcloud_LeMonde_7.png){width=6cm} ![](images/wordcloud_LeMonde_7.png){width=6cm}
+```{r, eval=F,include=F}
+#fonction qui donne les images des clusters en png
+Cluster<-function(words.hcpc,name){
+  nb_clusters <- length(words.hcpc$desc.var)
+  for (j in 1:nb_clusters){
+        png(paste(paste(paste("clusters/",name,sep=""),j,sep="_"),".png",sep=""),    width=6, height=6, units="in", res=150)
+        frq<-words.hcpc$desc.var[[j]][,"Intern freq"]
+        names<-names(words.hcpc$desc.var[[j]][,"Intern freq"])
+      wordcloud(words = names, freq = frq , min.freq = 1,
+            max.words=150, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+        dev.off()
+  }
+  graphics.off()
+}
+```
+
+##### Tous journaux confondus
+
+```{r, eval=F,include=F}
+words_table_CA <- words_table 
+non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
+words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
+non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
+words_table_CA <- words_table_CA[non_zero_rows,]
+
+#selection des dates avant elections
+w<-words_table_CA[which(words_table_CA$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
+journaux<-words_table_CA[,'journal']
+words_table_CA <- words_table_CA %>% select(-journal,-date,-title)
+
+res.CA <- CA(words_table_CA,graph=F,ncp=20)
+res.HCPC <- HCPC (res.CA,graph=F,nb.clust=6)
+res.HCPC$data.clust[,'journal']<-journaux
+#plot.HCPC(res.HCPC,invisible=c("row"))
+save(res.HCPC,file="clusters/HCPC.Rda")
+```
+```{r,eval=F,include=F}
+#clusters des trois journaux ensemble
+load("clusters/HCPC.Rda")
+Cluster(res.HCPC,"global_clusters")
+```
+
+
+<center>  
+|          |          |          |
+|:--------:|:--------:|:--------:|
+|![](clusters/global_clusters_1.png){width=6cm} | ![](clusters/global_clusters_2.png){width=6cm} | ![](clusters/global_clusters_3.png){width=6cm}|
+|    (1) gauche      |     (2) macron     |   (3) politique générale      |
+| ![](clusters/global_clusters_4.png){width=6cm} | ![](clusters/global_clusters_5.png){width=6cm} | ![](clusters/global_clusters_6.png){width=6cm} |
+|    (4)  travail    |    (5)  fillon    |   (6)  enquête     |
+
+
+```{r,echo=F,message=F}
+load("clusters/HCPC.Rda")
+
+repart <- res.HCPC$data.clust %>% 
+  select(journal,clust) %>% 
+  group_by(journal,clust) %>% 
+  summarise(prop = n())
+
+poids_journaux <- repart %>% 
+  select(journal,prop) %>% 
+  group_by(journal) %>% 
+  summarise(poids = sum(prop))
+
+taille_clusters <- repart %>% 
+  select(clust,prop) %>% 
+  group_by(clust) %>% 
+  summarise(taille = sum(prop)) %>% 
+  mutate(taille = taille/sum(taille))
+
+repart <- repart %>% 
+  left_join(poids_journaux,by = "journal") %>% 
+  mutate(prop = prop / poids) %>% 
+  select(clust,journal,prop)
+
+ggplot(repart)+
+  aes(x=clust,y=prop,fill=journal)+
+  geom_col()+xlab("cluster")+
+  ylab("répartition")
+
+ggplot(taille_clusters)+
+  aes(x=clust,y=taille)+
+  geom_col()+xlab("cluster")+
+  ylab("taille")
+```
+
+
 </center>
 
-#### Nuages de mots des clusters par journaux
+##### Par journaux
+
+```{r, eval=F,include=F}
+#traitement pour HCPC
+traitement_CA<-function(words_tmp){
+  words_res<-words_tmp
+  words_res<-words_res[which(words_res$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
+  words_res <- words_res %>% select(-date,-title)
+  non_zero_rows <- which(words_res %>% rowSums() >0)
+  words_res<-words_res[non_zero_rows,]
+  non_zero_cols <- which(words_res %>% colSums() >0)
+  words_res<-words_res[,non_zero_cols]
+  words_res<-CA(words_res,ncp=20,graph=F)
+  return (words_res)
+}
+
+
+lexpress_CA<-traitement_CA(lexpress_words_table)
+lefigaro_CA<-traitement_CA(lefigaro_words_table)
+lemonde_CA<-traitement_CA(lemonde_words_table)
+
+lexpress_HCPC<-HCPC(lexpress_CA,nb.clust=6,graph=F)
+lefigaro_HCPC<-HCPC(lefigaro_CA,nb.clust=6,graph=F)
+lemonde_HCPC<-HCPC(lemonde_CA,nb.clust=6,graph=F)
+
+Cluster(lexpress_HCPC,name="lexpress_cluster")
+Cluster(lefigaro_HCPC,"lefigaro_cluster")
+Cluster(lemonde_HCPC,"lemonde_cluster")
+```
+
 
 Cluster | Le Monde | Le Figaro | L'Express
 :-----:|:----------:|:-----------:|:----------:
-1 |![](images/wordcloud_LeMonde_12.png){width=6cm} | ![](images/wordcloud_LeFigaro_12.png){width=6cm}  | ![](images/wordcloud_L'Express_12.png){width=6cm}
-2 |![](images/wordcloud_LeMonde_1.png){width=6cm} | ![](images/wordcloud_LeFigaro_1.png){width=6cm}  | ![](images/wordcloud_L'Express_1.png){width=6cm}
-3 |![](images/wordcloud_LeMonde_2.png){width=6cm} | ![](images/wordcloud_LeFigaro_2.png){width=6cm}  | ![](images/wordcloud_L'Express_2.png){width=6cm}
-4 |![](images/wordcloud_LeMonde_3.png){width=6cm} | ![](images/wordcloud_LeFigaro_3.png){width=6cm}  | ![](images/wordcloud_L'Express_3.png){width=6cm}
-5 |![](images/wordcloud_LeMonde_4.png){width=6cm} | ![](images/wordcloud_LeFigaro_4.png){width=6cm}  | ![](images/wordcloud_L'Express_4.png){width=6cm}
-6 |![](images/wordcloud_LeMonde_5.png){width=6cm} | ![](images/wordcloud_LeFigaro_5.png){width=6cm}  | ![](images/wordcloud_L'Express_5.png){width=6cm}
+1 |![](clusters/lemonde_cluster_1.png){width=6cm} | ![](clusters/lefigaro_cluster_1.png){width=6cm}  | ![](clusters/lexpress_cluster_1.png){width=6cm}
+2 |![](clusters/lemonde_cluster_2.png){width=6cm} | ![](clusters/lefigaro_cluster_2.png){width=6cm}  | ![](clusters/lexpress_cluster_2.png){width=6cm}
+3 |![](clusters/lemonde_cluster_3.png){width=6cm} | ![](clusters/lefigaro_cluster_3.png){width=6cm}  | ![](clusters/lexpress_cluster_3.png){width=6cm}
+4 |![](clusters/lemonde_cluster_4.png){width=6cm} | ![](clusters/lefigaro_cluster_4.png){width=6cm}  | ![](clusters/lexpress_cluster_4.png){width=6cm}
+5 |![](clusters/lemonde_cluster_1.png){width=6cm} |  ![](clusters/lefigaro_cluster_5.png){width=6cm} | ![](clusters/lexpress_cluster_5.png){width=6cm}
+6 |![](clusters/lemonde_cluster_6.png){width=6cm} | ![](clusters/lefigaro_cluster_6.png){width=6cm}  | ![](clusters/lexpress_cluster_6.png){width=6cm}
