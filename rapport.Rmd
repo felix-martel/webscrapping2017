@@ -14,7 +14,7 @@ library(readr)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
-
+library(ggalt)
 # Wordcloud
 library(wordcloud)
 library(RColorBrewer)
@@ -24,6 +24,8 @@ library(tm)
 
 # Correspondence analysis
 library(FactoMineR)
+library(explor)
+library(factoextra)
 ```
 
 
@@ -43,7 +45,7 @@ La collecte de données à partir de pages Internet est appelée webscraping. Ce
 
 Dans un premier temps, nous avons déterminé une liste de mots-clés pour cibler les articles traitant de la campagne présidentielle. Les articles retenus étaient ceux qui contenaient un des mots-clés.
 
-```{r, echo=F,message=F}
+```{r relevant_titles, echo=F,message=F}
 titles_filter <- read_csv("data/titles_filter.csv",col_names = FALSE)$X1
 ```
 
@@ -52,7 +54,7 @@ titles_filter <- read_csv("data/titles_filter.csv",col_names = FALSE)$X1
 
 Nous avons par ailleurs déterminé une liste de mots d'intérêt dont nous souhaitions mesurer l'utilisation dans les articles retenus.
 
-```{r, echo=F,message=F}
+```{r relevant_words, echo=F,message=F}
 relevant_words <- read_csv("data/relevant_words.csv",col_names = FALSE)$X1
 ```
 
@@ -62,7 +64,7 @@ On commence par transformer le texte de l'article en un objet de classe Corpus p
 
 La fonction filter_corpus permet de composer une série de transformation sur un objet de classe Corpus, c'est à dire une collection de documents.
 
-```{r, eval=T,results=F}
+```{r traitements, eval=T,results=F}
 
 filter_corpus <- function(.){
   # Convertir le texte en minuscule
@@ -80,13 +82,13 @@ filter_corpus <- function(.){
 
 Ensuite, on utilise la fonction TermDocumentMatrix pour réaliser le décompte du nombre d'occurences de chaque mot dans chaque article pour en extraire la fréquence des mots d'intérêts. Nous donnons ci-dessous un exemple jouet avec trois textes philosophiques et 6 mots d'intérêt pour mieux fixer les idées.
 
-```{r, include=F}
+```{r example_corpus, include=F}
 texts <- sapply(c(1:3),function(i) {stringr::str_c(readLines(paste("data/texts/t",i,".txt",sep="")),collapse = "\n")})
 words = c("ignorance","doute","raison","force","penser","croire")
 ```
 
 
-```{r}
+```{r example_words_table}
 words_table_maker <- function(text,words){
   text <- filter_corpus(Corpus(VectorSource(text)))
   dtm <- TermDocumentMatrix(text)
@@ -108,7 +110,7 @@ knitr::kable(my_words_table)
 
 Nous commençons par charger les tables de contingence des trois journaux étudiés qui sont enregistrées dans le dossier data. Nous compilons les résultats dans une unique table de données.
 
-```{r, result=FALSE}
+```{r data_import, result=FALSE}
 load("data/lexpress_words_table.Rda")
 load("data/lefigaro_words_table.Rda")
 load("data/lemonde_words_table.Rda")
@@ -128,7 +130,7 @@ relevant_words = colnames(words_table)[4:ncol(words_table)]
 
 Nous avons utilisé des nuages de mots pour représenter le vocabulaire utilisé dans les trois quotidiens au cours de chaque mois de la période retenue. En comparant les nuages de mots, on peut ainsi repérer visuellement les similarités et les différences dans les sujets abordés par ces trois titres de presse. 
 
-```{r,eval=F}
+```{r monthly_wordclouds,eval=F}
 
 words_hotness <- words_table %>% 
   mutate(month = as.factor(month(date)), date=NULL) %>% 
@@ -159,19 +161,15 @@ juillet |![](images/wordcloud_LeMonde_7.png){width=6cm} | ![](images/wordcloud_L
 
 ### Evolution temporelle lissée
 
-## Analyse factorielle des correspondances
-
-### Représentation graphique des articles et des mots d'intérêt
-
-### Classification hiérarchique sur composantes principales
+## Analyse factorielle des correspondances et classification hiérarchique sur composantes principales
 
 Le package factomineR contient une fonction permettant de réaliser une classification hiérarchique sur composantes principales à partir d'une analyse factorielle des correspondances.
+L'analyse des correspondances se fait grâce à la fonction data.CA(...) l'objectif de la CA est d'analyser la relation entre les lignes (articles) et les colomnes (les mots d'intérêt) mais également les relations des mots entre eux et des articles entre eux. Comme l'analyse en composantes principales, elle fournit une manière de résumer et visualiser des données dans des diagrammes bidimensionnels.
+Le clustering hiérarchique implique la création de clusters ayant un ordre du haut vers le bas. Il peut être visualisé grâce à une factor map (du package factoextra) comme on peut le voir ci-dessous. La HCPC a été réalisée sur toutes les données extraites des journaux. Nous avons effectué une CA puis une HCPC sur la table de contingence. Nous nous intéressons également à la contribution de chaque article dans les clusters illustrés ci-dessous.
 
-#### Nuages de mots des clusters
-
-```{r, eval=F,include=F}
+```{r clusters_wordcloud_f, include=F}
 #fonction qui donne les images des clusters en png
-Cluster<-function(words.hcpc,name){
+clusters_wordcloud<-function(words.hcpc,name){
   nb_clusters <- length(words.hcpc$desc.var)
   for (j in 1:nb_clusters){
         png(paste(paste(paste("clusters/",name,sep=""),j,sep="_"),".png",sep=""),    width=6, height=6, units="in", res=150)
@@ -186,9 +184,9 @@ Cluster<-function(words.hcpc,name){
 }
 ```
 
-##### Tous journaux confondus
+### Visualisation de 4 clusters sur les données des trois journaux
 
-```{r, eval=F,include=F}
+```{r global_HCPC, eval=F,echo=F}
 words_table_CA <- words_table 
 non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
 words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
@@ -201,28 +199,35 @@ journaux<-words_table_CA[,'journal']
 words_table_CA <- words_table_CA %>% select(-journal,-date,-title)
 
 res.CA <- CA(words_table_CA,graph=F,ncp=20)
-res.HCPC <- HCPC (res.CA,graph=F,nb.clust=6)
+res.HCPC <- HCPC (res.CA,graph=F,nb.clust=4)
 res.HCPC$data.clust[,'journal']<-journaux
-#plot.HCPC(res.HCPC,invisible=c("row"))
 save(res.HCPC,file="clusters/HCPC.Rda")
 ```
-```{r,eval=F,include=F}
-#clusters des trois journaux ensemble
+<center>  
+```{r global_factor_map, echo=F}
+#visualisation factor map 
 load("clusters/HCPC.Rda")
-Cluster(res.HCPC,"global_clusters")
+fviz_cluster(res.HCPC, geom = "point", main = "Factor map")
 ```
 
+```{r global_wordclouds,eval=F,include=F}
+#clusters des trois journaux ensemble
+load("clusters/HCPC.Rda")
+#wordclouds of clusters
+clusters_wordcloud(res.HCPC,"global_clusters")
+```
 
-<center>  
-|          |          |          |
-|:--------:|:--------:|:--------:|
-|![](clusters/global_clusters_1.png){width=6cm} | ![](clusters/global_clusters_2.png){width=6cm} | ![](clusters/global_clusters_3.png){width=6cm}|
-|    (1) gauche      |     (2) macron     |   (3) politique générale      |
-| ![](clusters/global_clusters_4.png){width=6cm} | ![](clusters/global_clusters_5.png){width=6cm} | ![](clusters/global_clusters_6.png){width=6cm} |
-|    (4)  travail    |    (5)  fillon    |   (6)  enquête     |
+|          |          |
+|:--------:|:--------:|
+|![](clusters/global_clusters_1.png){width=6cm} | ![](clusters/global_clusters_2.png){width=6cm} | 
+|    (1) gauche      |     (2) macron     |
+![](clusters/global_clusters_3.png){width=6cm}| ![](clusters/global_clusters_4.png){width=6cm} | 
+|   (3)  fillon     |    (4)  enquête     |
 
 
-```{r,echo=F,message=F}
+
+
+```{r repart_clusters,echo=F,message=F}
 load("clusters/HCPC.Rda")
 
 repart <- res.HCPC$data.clust %>% 
@@ -256,14 +261,13 @@ ggplot(taille_clusters)+
   geom_col()+xlab("cluster")+
   ylab("taille")
 ```
-
-
 </center>
 
-##### Par journaux
+##### Clustering par journal
+Nous effectuons la même opération que précédemment, mais cette fois-ci sur chaque journal séparément.
 
-```{r, eval=F,include=F}
-#traitement pour HCPC
+```{r local_hcpc, eval=F,echo=F}
+#traitement pour CA
 traitement_CA<-function(words_tmp){
   words_res<-words_tmp
   words_res<-words_res[which(words_res$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
@@ -276,26 +280,63 @@ traitement_CA<-function(words_tmp){
   return (words_res)
 }
 
-
+#application de la CA aux trois journaux
 lexpress_CA<-traitement_CA(lexpress_words_table)
 lefigaro_CA<-traitement_CA(lefigaro_words_table)
 lemonde_CA<-traitement_CA(lemonde_words_table)
 
-lexpress_HCPC<-HCPC(lexpress_CA,nb.clust=6,graph=F)
-lefigaro_HCPC<-HCPC(lefigaro_CA,nb.clust=6,graph=F)
-lemonde_HCPC<-HCPC(lemonde_CA,nb.clust=6,graph=F)
 
-Cluster(lexpress_HCPC,name="lexpress_cluster")
-Cluster(lefigaro_HCPC,"lefigaro_cluster")
-Cluster(lemonde_HCPC,"lemonde_cluster")
+#On choisit le nombre de cluster en visulaisant les factor maps : 
+#nb clusters : 4 pour l'express, 3 pour le figaro et 5 pour lemonde
+lexpress_HCPC<-HCPC(lexpress_CA,nb.clust=4,graph=F)
+lefigaro_HCPC<-HCPC(lefigaro_CA,nb.clust=3,graph=F)
+lemonde_HCPC<-HCPC(lemonde_CA,nb.clust=5,graph=F)
+
+save(lexpress_HCPC,file="clusters/lexpress_HCPC.Rda")
+save(lefigaro_HCPC,file="clusters/lefigaro_HCPC.Rda")
+save(lemonde_HCPC,file="clusters/lemonde_HCPC.Rda")
+```
+
+```{r load_local_hcpc, include = F}
+load("clusters/lexpress_HCPC.Rda")
+load("clusters/lefigaro_HCPC.Rda")
+load("clusters/lemonde_HCPC.Rda")
 ```
 
 
-Cluster | Le Monde | Le Figaro | L'Express
-:-----:|:----------:|:-----------:|:----------:
-1 |![](clusters/lemonde_cluster_1.png){width=6cm} | ![](clusters/lefigaro_cluster_1.png){width=6cm}  | ![](clusters/lexpress_cluster_1.png){width=6cm}
-2 |![](clusters/lemonde_cluster_2.png){width=6cm} | ![](clusters/lefigaro_cluster_2.png){width=6cm}  | ![](clusters/lexpress_cluster_2.png){width=6cm}
-3 |![](clusters/lemonde_cluster_3.png){width=6cm} | ![](clusters/lefigaro_cluster_3.png){width=6cm}  | ![](clusters/lexpress_cluster_3.png){width=6cm}
-4 |![](clusters/lemonde_cluster_4.png){width=6cm} | ![](clusters/lefigaro_cluster_4.png){width=6cm}  | ![](clusters/lexpress_cluster_4.png){width=6cm}
-5 |![](clusters/lemonde_cluster_1.png){width=6cm} |  ![](clusters/lefigaro_cluster_5.png){width=6cm} | ![](clusters/lexpress_cluster_5.png){width=6cm}
-6 |![](clusters/lemonde_cluster_6.png){width=6cm} | ![](clusters/lefigaro_cluster_6.png){width=6cm}  | ![](clusters/lexpress_cluster_6.png){width=6cm}
+```{r local_clusters_wordcloud, echo=F, eval = F}
+#exportation des nuages de mots des clusters pour chaque journal
+clusters_wordcloud(lexpress_HCPC,name="lexpress_cluster")
+clusters_wordcloud(lefigaro_HCPC,"lefigaro_cluster")
+clusters_wordcloud(lemonde_HCPC,"lemonde_cluster")
+```
+
+
+<center> 
+```{r factor_map_lexpress,echo=F}
+fviz_cluster(lexpress_HCPC, geom = "point", main = "L'Express - clusters")
+```
+
+|          |          |
+|:--------:|:--------:|
+|![](clusters/lexpress_cluster_1.png){width=6cm} | ![](clusters/lexpress_cluster_2.png){width=6cm} | 
+|![](clusters/lexpress_cluster_3.png){width=6cm}| ![](clusters/lexpress_cluster_4.png){width=6cm} | 
+
+```{r factor_map_lefigaro,echo=F}
+fviz_cluster(lefigaro_HCPC, geom = "point", main = "Le Figaro - clusters")
+```
+
+|          |          |
+|:--------:|:--------:|
+|![](clusters/lefigaro_cluster_1.png){width=6cm} | ![](clusters/lefigaro_cluster_2.png){width=6cm} | 
+|![](clusters/lefigaro_cluster_3.png){width=6cm}|  | 
+
+```{r factor_map_lemonde,echo=F}
+fviz_cluster(lemonde_HCPC, geom = "point", main = "Le Monde - clusters")
+```
+
+|          |          |          |
+|:--------:|:--------:|:--------:|
+|![](clusters/lemonde_cluster_1.png){width=6cm} | ![](clusters/lemonde_cluster_2.png){width=6cm} | ![](clusters/lemonde_cluster_3.png){width=6cm} |
+|![](clusters/lemonde_cluster_4.png){width=6cm}| ![](clusters/lemonde_cluster_5.png){width=6cm}  | |
+</center> 

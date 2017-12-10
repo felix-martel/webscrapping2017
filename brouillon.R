@@ -4,33 +4,24 @@ library(dplyr)
 load("trash/clusters.Rda")
 
 
-repart <- res.HCPC$data.clust %>% 
-  select(journal,clust) %>% 
-  group_by(journal,clust) %>% 
-  summarise(prop = n())
+words_table_CA <- words_table 
+non_zero_words <- names(which(words_table_CA %>% select(-journal,-title,-date) %>% colSums() >0))
+words_table_CA <- cbind(words_table_CA[,c(1,2,3)],words_table_CA[,non_zero_words])
+non_zero_rows <- which(words_table_CA %>% select(-journal,-title,-date) %>% rowSums() >0)
+words_table_CA <- words_table_CA[non_zero_rows,]
 
-poids_journaux <- repart %>% 
-  select(journal,prop) %>% 
-  group_by(journal) %>% 
-  summarise(poids = sum(prop))
+#selection des dates avant elections
+w<-words_table_CA[which(words_table_CA$date < as.Date("07-05-2017",format="%d-%m-%Y")),]
+journaux<-words_table_CA[,'journal']
+words_table_CA <- words_table_CA %>% select(-journal,-date,-title)
 
-taille_clusters <- repart %>% 
-  select(clust,prop) %>% 
-  group_by(clust) %>% 
-  summarise(taille = sum(prop)) %>% 
-  mutate(taille = taille/sum(taille))
+res.CA <- CA(words_table_CA,graph=F,ncp=20)
 
-repart <- repart %>% 
-  left_join(poids_journaux,by = "journal") %>% 
-  mutate(prop = prop / poids) %>% 
-  select(clust,journal,prop)
+words.CA <- as.data.frame(res.CA$col$coord)
+words.CA.clust <- kmeans(words.CA,2,iter.max=20,nstart=100)$cluster
+words.CA <- words.CA %>% mutate(clust=as.factor(words.CA.clust))
 
-ggplot(repart)+
-  aes(x=clust,y=prop,fill=journal)+
-  geom_col()+xlab("cluster")+
-  ylab("répartition")
+ggplot(words.CA)+aes(x=`Dim 1`,y=`Dim 2`,col=clust)+geom_point()
 
-ggplot(taille_clusters)+
-  aes(x=clust,y=taille)+
-  geom_col()+xlab("cluster")+
-  ylab("taille")
+#plot.HCPC(res.HCPC,invisible=c("row"))
+#save(res.HCPC,file="clusters/HCPC.Rda")
